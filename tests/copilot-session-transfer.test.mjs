@@ -70,11 +70,10 @@ test("Copilot session export preserves visible conversation and omits tool conte
   assert.equal(result.stats.ignoredSubagentMessages, 2);
   assert.equal(result.stats.attachmentsOmitted, 1);
   assert.equal(result.stats.malformedLines, 1);
-  assert.deepEqual(records.map((record) => record.type), ["user", "assistant", "assistant"]);
+  assert.deepEqual(records.map((record) => record.type), ["user", "assistant"]);
   assert.match(records[0].message.content, /Review this change/);
   assert.match(records[0].message.content, /Attachment omitted: design\.png, image\/png/);
-  assert.equal(records[1].message.content, "I will inspect it.");
-  assert.equal(records[2].message.content, "The change looks safe.");
+  assert.equal(records[1].message.content, "I will inspect it.\n\nThe change looks safe.");
 
   const exported = fs.readFileSync(outputPath, "utf8");
   for (const excluded of [
@@ -161,9 +160,8 @@ test("Copilot session export stays bounded when a turn contains many tool events
 
   assert.equal(result.stats.toolCalls, 500);
   assert.equal(result.stats.toolResults, 500);
-  assert.deepEqual(records.map((record) => record.type), ["user", "assistant", "assistant"]);
-  assert.equal(records[1].message.content, "I will inspect it.");
-  assert.equal(records[2].message.content, "Inspection complete.");
+  assert.deepEqual(records.map((record) => record.type), ["user", "assistant"]);
+  assert.equal(records[1].message.content, "I will inspect it.\n\nInspection complete.");
   assert.ok(fs.statSync(outputPath).size < 1_000);
 });
 

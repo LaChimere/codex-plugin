@@ -93,6 +93,28 @@ async function writeLine(stream, value) {
   await once(stream, "drain");
 }
 
+async function flushPendingAssistant(output, state) {
+  if (!state.pendingAssistant) {
+    return;
+  }
+  await writeLine(output, state.pendingAssistant);
+  state.pendingAssistant = null;
+}
+
+async function writeRecord(output, state, record) {
+  if (record.type === "assistant" && typeof record.message?.content === "string") {
+    if (state.pendingAssistant?.cwd === record.cwd) {
+      state.pendingAssistant.message.content += `\n\n${record.message.content}`;
+    } else {
+      await flushPendingAssistant(output, state);
+      state.pendingAssistant = record;
+    }
+    return;
+  }
+  await flushPendingAssistant(output, state);
+  await writeLine(output, record);
+}
+
 async function processLine(line, output, state) {
   const trimmed = line.trim();
   if (!trimmed) {
@@ -107,7 +129,7 @@ async function processLine(line, output, state) {
   }
   const record = copilotEventToRecord(event, state);
   if (record) {
-    await writeLine(output, record);
+    await writeRecord(output, state, record);
   }
 }
 
@@ -119,6 +141,7 @@ export async function exportCopilotSession(sourcePath, outputPath, options = {})
   const output = fs.createWriteStream(tempPath, { encoding: "utf8", mode: 0o600 });
   const state = {
     cwd: options.fallbackCwd,
+    pendingAssistant: null,
     stats: {
       sourceBytes: snapshotBytes,
       userMessages: 0,
@@ -173,6 +196,7 @@ export async function exportCopilotSession(sourcePath, outputPath, options = {})
       }
     }
 
+    await flushPendingAssistant(output, state);
     await new Promise((resolve, reject) => {
       output.end(resolve);
       output.once("error", reject);
