@@ -95,6 +95,47 @@ test("Copilot session export preserves main conversation and bounded tool contex
   }
 });
 
+test("Copilot session export links tool results and omits structured payloads", async () => {
+  const root = makeTempDir();
+  const sourcePath = path.join(root, "events.jsonl");
+  const outputPath = path.join(root, "export.jsonl");
+  writeEvents(sourcePath, [
+    event("user.message", { content: "Run both checks" }),
+    event("tool.execution_start", {
+      toolCallId: "call-a",
+      toolName: "bash",
+      arguments: { command: "first" }
+    }),
+    event("tool.execution_start", {
+      toolCallId: "call-b",
+      toolName: "bash",
+      arguments: { command: "second" }
+    }),
+    event("tool.execution_complete", {
+      toolCallId: "call-b",
+      success: true,
+      result: { content: "second result" }
+    }),
+    event("tool.execution_complete", {
+      toolCallId: "call-a",
+      success: true,
+      result: { attachment: { path: "/secret/result.png", data: "BASE64_BINARY" } }
+    })
+  ]);
+
+  await exportCopilotSession(sourcePath, outputPath, { fallbackCwd: root });
+  const records = fs.readFileSync(outputPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  const blocks = records.slice(1).map((record) => record.message.content[0]);
+
+  assert.equal(blocks[0].id, "call-a");
+  assert.equal(blocks[1].id, "call-b");
+  assert.equal(blocks[2].tool_use_id, "call-b");
+  assert.equal(blocks[2].content, "second result");
+  assert.equal(blocks[3].tool_use_id, "call-a");
+  assert.equal(blocks[3].content, "[Non-text tool result omitted]");
+  assert.doesNotMatch(fs.readFileSync(outputPath, "utf8"), /secret|BASE64_BINARY/);
+});
+
 test("session transfer resolves the current Copilot session and writes a stable import file", async () => {
   const root = makeTempDir();
   const repo = path.join(root, "repo");

@@ -17,7 +17,7 @@ function appendAttachmentMarkers(text, attachments) {
   return [text, ...markers].filter(Boolean).join("\n\n");
 }
 
-function stringifyToolResult(data) {
+function formatToolResult(data) {
   const result = data?.result;
   let value;
   if (typeof result?.content === "string") {
@@ -25,9 +25,16 @@ function stringifyToolResult(data) {
   } else if (typeof result?.detailedContent === "string") {
     value = result.detailedContent;
   } else if (result != null) {
-    value = JSON.stringify(result);
+    value = "[Non-text tool result omitted]";
   } else if (data?.error != null) {
-    value = typeof data.error === "string" ? data.error : JSON.stringify(data.error);
+    if (typeof data.error === "string") {
+      value = data.error;
+    } else if (typeof data.error?.message === "string") {
+      const code = data.error.code == null ? "" : ` (${String(data.error.code)})`;
+      value = `${data.error.message}${code}`;
+    } else {
+      value = "[Non-text tool error omitted]";
+    }
   } else {
     value = "";
   }
@@ -97,6 +104,7 @@ function copilotEventToRecord(event, state) {
         content: [
           {
             type: "tool_use",
+            id: data.toolCallId,
             name: data.toolName ?? data.mcpToolName ?? "unknown",
             input: data.arguments ?? {}
           }
@@ -119,8 +127,9 @@ function copilotEventToRecord(event, state) {
         content: [
           {
             type: "tool_result",
+            tool_use_id: data.toolCallId,
             is_error: data.success === false,
-            content: stringifyToolResult(data)
+            content: formatToolResult(data)
           }
         ]
       }
