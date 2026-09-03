@@ -40,6 +40,24 @@ test("resolveStateDir uses CLAUDE_PLUGIN_DATA when it is provided", () => {
   }
 });
 
+test("resolveStateDir uses COPILOT_PLUGIN_DATA when Claude plugin data is absent", () => {
+  const workspace = makeTempDir();
+  const pluginDataDir = makeTempDir();
+  const previousClaudeData = process.env.CLAUDE_PLUGIN_DATA;
+  const previousCopilotData = process.env.COPILOT_PLUGIN_DATA;
+  delete process.env.CLAUDE_PLUGIN_DATA;
+  process.env.COPILOT_PLUGIN_DATA = pluginDataDir;
+
+  try {
+    assert.equal(resolveStateDir(workspace).startsWith(path.join(pluginDataDir, "state")), true);
+  } finally {
+    if (previousClaudeData == null) delete process.env.CLAUDE_PLUGIN_DATA;
+    else process.env.CLAUDE_PLUGIN_DATA = previousClaudeData;
+    if (previousCopilotData == null) delete process.env.COPILOT_PLUGIN_DATA;
+    else process.env.COPILOT_PLUGIN_DATA = previousCopilotData;
+  }
+});
+
 test("saveState prunes dropped job artifacts when indexed jobs exceed the cap", () => {
   const workspace = makeTempDir();
   const stateFile = resolveStateFile(workspace);
