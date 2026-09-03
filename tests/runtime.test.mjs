@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { buildEnv, installFakeCodex } from "./fake-codex-fixture.mjs";
 import { initGitRepo, makeTempDir, run } from "./helpers.mjs";
 import { loadBrokerSession, saveBrokerSession } from "../plugins/codex/scripts/lib/broker-lifecycle.mjs";
+import { forgetPluginDataDir, getPluginDataDir } from "../plugins/codex/scripts/lib/host.mjs";
 import { resolveStateDir } from "../plugins/codex/scripts/lib/state.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -244,6 +245,59 @@ test("transfer delegates the current Claude session directly to native import", 
   );
 });
 
+test("transfer converts the current Copilot session and appends later history to the same Codex thread", () => {
+  const home = makeTempDir();
+  const repo = path.join(home, "repo");
+  const binDir = makeTempDir();
+  const sessionId = "12345678-1234-1234-1234-123456789abc";
+  const copilotHome = path.join(home, ".copilot");
+  const sourcePath = path.join(copilotHome, "session-state", sessionId, "events.jsonl");
+  const pluginData = path.join(home, "plugin-data");
+  fs.mkdirSync(repo, { recursive: true });
+  fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+
+  const lines = [
+    { type: "session.start", timestamp: "2026-09-03T03:00:00Z", data: { version: 1, context: { cwd: repo } } },
+    { type: "user.message", timestamp: "2026-09-03T03:01:00Z", data: { content: "Initial Copilot request" } },
+    { type: "assistant.message", timestamp: "2026-09-03T03:02:00Z", data: { content: "Initial Copilot answer" } }
+  ];
+  fs.writeFileSync(sourcePath, `${lines.map((entry) => JSON.stringify(entry)).join("\n")}\n`, "utf8");
+
+  const env = {
+    ...buildEnv(binDir),
+    HOME: home,
+    CODEX_HOME: path.join(home, ".codex"),
+    COPILOT_HOME: copilotHome,
+    COPILOT_AGENT_SESSION_ID: sessionId,
+    COPILOT_PLUGIN_DATA: pluginData
+  };
+  const first = run("node", [SCRIPT, "transfer", "--json"], { cwd: repo, env });
+  assert.equal(first.status, 0, first.stderr);
+  const firstPayload = JSON.parse(first.stdout);
+  assert.equal(firstPayload.host, "copilot");
+  assert.equal(firstPayload.threadId, "thr_1");
+  assert.equal(firstPayload.sourcePath, fs.realpathSync(sourcePath));
+
+  fs.appendFileSync(
+    sourcePath,
+    `${JSON.stringify({ type: "user.message", timestamp: "2026-09-03T03:03:00Z", data: { content: "Follow-up request" } })}\n`,
+    "utf8"
+  );
+  const second = run("node", [SCRIPT, "transfer", "--json"], { cwd: repo, env });
+  assert.equal(second.status, 0, second.stderr);
+  const secondPayload = JSON.parse(second.stdout);
+  assert.equal(secondPayload.threadId, "thr_1");
+
+  const fakeState = JSON.parse(fs.readFileSync(path.join(binDir, "fake-codex-state.json"), "utf8"));
+  assert.equal(fakeState.threads.length, 1);
+  assert.deepEqual(
+    fakeState.threads[0].visibleMessages.map((message) => message.text),
+    ["Initial Copilot request", "Initial Copilot answer", "Follow-up request"]
+  );
+});
+
 test("transfer reports an actionable upgrade error when native import is unsupported", () => {
   const home = makeTempDir();
   const repo = path.join(home, "repo");
@@ -270,7 +324,7 @@ test("transfer reports an actionable upgrade error when native import is unsuppo
   });
 
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /does not support Claude session transfer/);
+  assert.match(result.stderr, /does not support external session transfer/);
   assert.match(result.stderr, /@openai\/codex@latest/);
 });
 
@@ -324,7 +378,7 @@ test("transfer rejects sources outside the Claude projects directory", () => {
   });
 
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /only from .*\.claude.*projects/);
+  assert.match(result.stderr, /only from .*\.claude.*projects.*or.*\.copilot.*session-state/i);
 });
 
 test("task reports the actual Codex auth error when the run is rejected", () => {
@@ -698,6 +752,30 @@ test("session start hook exports the Claude session id, transcript path, and plu
   );
 });
 
+test("session start hook accepts Copilot field names and plugin data", () => {
+  const repo = makeTempDir();
+  const pluginDataDir = makeTempDir();
+  const transcriptPath = path.join(repo, "events.jsonl");
+
+  const result = run("node", [SESSION_HOOK, "sessionStart"], {
+    cwd: repo,
+    env: {
+      ...process.env,
+      CLAUDE_ENV_FILE: "",
+      CLAUDE_PLUGIN_DATA: pluginDataDir
+    },
+    input: JSON.stringify({
+      sessionId: "copilot-session",
+      transcriptPath,
+      cwd: repo
+    })
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(getPluginDataDir({ COPILOT_AGENT_SESSION_ID: "copilot-session" }), pluginDataDir);
+  forgetPluginDataDir("copilot-session");
+});
+
 test("write task output focuses on the Codex result without generic follow-up hints", () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();
@@ -754,6 +832,26 @@ test("task --fresh is treated as routing control and does not leak into the prom
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
   const result = run("node", [SCRIPT, "task", "--fresh", "diagnose the flaky test"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.equal(fakeState.lastTurnStart.prompt, "diagnose the flaky test");
+});
+
+test("task --wait is accepted as foreground routing control and does not leak into the prompt", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+  fs.writeFileSync(path.join(repo, "README.md"), "hello\n");
+  run("git", ["add", "README.md"], { cwd: repo });
+  run("git", ["commit", "-m", "init"], { cwd: repo });
+
+  const result = run("node", [SCRIPT, "task", "--wait", "diagnose the flaky test"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -1965,7 +2063,7 @@ test("stop hook runs a stop-time review task and blocks on findings when the rev
   const fakeState = JSON.parse(fs.readFileSync(fakeStatePath, "utf8"));
   assert.match(fakeState.lastTurnStart.prompt, /<task>/i);
   assert.match(fakeState.lastTurnStart.prompt, /<compact_output_contract>/i);
-  assert.match(fakeState.lastTurnStart.prompt, /Only review the work from the previous Claude turn/i);
+  assert.match(fakeState.lastTurnStart.prompt, /Only review the work from the previous host-agent turn/i);
   assert.match(fakeState.lastTurnStart.prompt, /I completed the refactor and updated the retry logic\./);
 
   const status = run("node", [SCRIPT, "status"], {
@@ -1977,6 +2075,31 @@ test("stop hook runs a stop-time review task and blocks on findings when the rev
   });
   assert.equal(status.status, 0, status.stderr);
   assert.match(status.stdout, /Codex Stop Gate Review/);
+});
+
+test("stop hook does not re-enter a Copilot review gate continuation", () => {
+  const repo = makeTempDir();
+  const stateDir = resolveStateDir(repo);
+  fs.mkdirSync(path.join(stateDir, "jobs"), { recursive: true });
+  fs.writeFileSync(
+    path.join(stateDir, "state.json"),
+    `${JSON.stringify({ version: 1, config: { stopReviewGate: true }, jobs: [] }, null, 2)}\n`,
+    "utf8"
+  );
+
+  const result = run(process.execPath, [STOP_HOOK], {
+    cwd: repo,
+    env: { ...process.env, PATH: "" },
+    input: JSON.stringify({
+      cwd: repo,
+      sessionId: "copilot-session",
+      stop_hook_active: true
+    })
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "");
 });
 
 test("stop hook logs running tasks to stderr without blocking when the review gate is disabled", () => {

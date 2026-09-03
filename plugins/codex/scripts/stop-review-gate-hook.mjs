@@ -10,13 +10,14 @@ import { getCodexAvailability } from "./lib/codex.mjs";
 import { loadPromptTemplate, interpolateTemplate } from "./lib/prompts.mjs";
 import { getConfig, listJobs } from "./lib/state.mjs";
 import { sortJobsNewestFirst } from "./lib/job-control.mjs";
+import { normalizeHookInput } from "./lib/host.mjs";
 import { SESSION_ID_ENV } from "./lib/tracked-jobs.mjs";
 import { resolveWorkspaceRoot } from "./lib/workspace.mjs";
 
 const STOP_REVIEW_TIMEOUT_MS = 15 * 60 * 1000;
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(SCRIPT_DIR, "..");
-const STOP_REVIEW_TASK_MARKER = "Run a stop-gate review of the previous Claude turn.";
+const STOP_REVIEW_TASK_MARKER = "Run a stop-gate review of the previous host-agent turn.";
 
 function readHookInput() {
   const raw = fs.readFileSync(0, "utf8").trim();
@@ -38,7 +39,7 @@ function logNote(message) {
 }
 
 function filterJobsForCurrentSession(jobs, input = {}) {
-  const sessionId = input.session_id || process.env[SESSION_ID_ENV] || null;
+  const sessionId = normalizeHookInput(input, process.env).sessionId;
   if (!sessionId) {
     return jobs;
   }
@@ -46,10 +47,10 @@ function filterJobsForCurrentSession(jobs, input = {}) {
 }
 
 function buildStopReviewPrompt(input = {}) {
-  const lastAssistantMessage = String(input.last_assistant_message ?? "").trim();
+  const lastAssistantMessage = String(normalizeHookInput(input, process.env).lastAssistantMessage).trim();
   const template = loadPromptTemplate(ROOT_DIR, "stop-review-gate");
   const claudeResponseBlock = lastAssistantMessage
-    ? ["Previous Claude response:", lastAssistantMessage].join("\n")
+    ? ["Previous host-agent response:", lastAssistantMessage].join("\n")
     : "";
   return interpolateTemplate(template, {
     CLAUDE_RESPONSE_BLOCK: claudeResponseBlock
@@ -96,11 +97,12 @@ function parseStopReviewOutput(rawOutput) {
 }
 
 function runStopReview(cwd, input = {}) {
+  const normalized = normalizeHookInput(input, process.env);
   const scriptPath = path.join(SCRIPT_DIR, "codex-companion.mjs");
   const prompt = buildStopReviewPrompt(input);
   const childEnv = {
     ...process.env,
-    ...(input.session_id ? { [SESSION_ID_ENV]: input.session_id } : {})
+    ...(normalized.sessionId ? { [SESSION_ID_ENV]: normalized.sessionId } : {})
   };
   const result = spawnSync(process.execPath, [scriptPath, "task", "--json", prompt], {
     cwd,
@@ -141,7 +143,8 @@ function runStopReview(cwd, input = {}) {
 
 function main() {
   const input = readHookInput();
-  const cwd = input.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  const normalized = normalizeHookInput(input, process.env);
+  const cwd = normalized.cwd || process.cwd();
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const config = getConfig(workspaceRoot);
 
@@ -152,6 +155,11 @@ function main() {
     : null;
 
   if (!config.stopReviewGate) {
+    logNote(runningTaskNote);
+    return;
+  }
+
+  if (normalized.stopHookActive) {
     logNote(runningTaskNote);
     return;
   }

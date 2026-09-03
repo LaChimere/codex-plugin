@@ -44,7 +44,7 @@ import { BROKER_BUSY_RPC_CODE, BROKER_ENDPOINT_ENV, CodexAppServerClient } from 
 import { loadBrokerSession } from "./broker-lifecycle.mjs";
 import { binaryAvailable } from "./process.mjs";
 
-const SERVICE_NAME = "claude_code_codex_plugin";
+const SERVICE_NAME = process.env.COPILOT_AGENT_SESSION_ID ? "copilot_cli_codex_plugin" : "claude_code_codex_plugin";
 const TASK_THREAD_PREFIX = "Codex Companion Task";
 const DEFAULT_CONTINUE_PROMPT =
   "Continue from the current thread state. Pick the next highest-value step and follow through until the task is resolved.";
@@ -641,8 +641,8 @@ async function withAppServer(cwd, fn) {
   }
 }
 
-async function withDirectAppServer(cwd, fn) {
-  const client = await CodexAppServerClient.connect(cwd, { disableBroker: true });
+async function withDirectAppServer(cwd, fn, options = {}) {
+  const client = await CodexAppServerClient.connect(cwd, { disableBroker: true, ...options });
   try {
     return await fn(client);
   } finally {
@@ -678,12 +678,12 @@ function importedThreadIdForSource(sourcePath) {
   return match?.imported_thread_id ?? null;
 }
 
-function externalAgentSessionMigration(sourcePath, cwd) {
+function externalAgentSessionMigration(sourcePath, cwd, sourceHost = "claude") {
   return {
     migrationItems: [
       {
         itemType: "SESSIONS",
-        description: `Transfer Claude session ${path.basename(sourcePath)}`,
+        description: `Transfer ${sourceHost} session ${path.basename(sourcePath)}`,
         cwd: null,
         details: {
           plugins: [],
@@ -711,18 +711,18 @@ async function requestExternalAgentSessionImport(client, params) {
 
   client.setNotificationHandler((message) => {
     if (message.method === EXTERNAL_AGENT_IMPORT_COMPLETED) {
-      resolveCompleted();
+      resolveCompleted(message.params);
       return;
     }
     previousHandler?.(message);
   });
   timeout = setTimeout(() => {
-    rejectCompleted(new Error("Timed out waiting for Codex to finish importing the Claude session."));
+    rejectCompleted(new Error("Timed out waiting for Codex to finish importing the external session."));
   }, EXTERNAL_AGENT_IMPORT_TIMEOUT_MS);
 
   try {
     await client.request("externalAgentConfig/import", params);
-    await completed;
+    return await completed;
   } finally {
     clearTimeout(timeout);
     client.setNotificationHandler(previousHandler ?? null);
@@ -909,7 +909,7 @@ export function getSessionRuntimeStatus(env = process.env, cwd = process.cwd()) 
     return {
       mode: "shared",
       label: "shared session",
-      detail: "This Claude session is configured to reuse one shared Codex runtime.",
+      detail: "This host session is configured to reuse one shared Codex runtime.",
       endpoint
     };
   }
@@ -1061,17 +1061,38 @@ export async function importExternalAgentSession(cwd, options = {}) {
     throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `npm install -g @openai/codex`, then rerun `/codex:setup`.");
   }
   if (!options.sourcePath) {
-    throw new Error("A Claude session source path is required.");
+    throw new Error("An external session source path is required.");
   }
 
+  const appServerOptions = options.externalAgentHome
+    ? {
+        env: {
+          ...process.env,
+          CODEX_HOME: resolveCodexHome(),
+          HOME: options.externalAgentHome,
+          USERPROFILE: options.externalAgentHome
+        }
+      }
+    : {};
+
   return withDirectAppServer(cwd, async (client) => {
-    emitProgress(options.onProgress, "Importing Claude session into Codex.", "transferring");
+    const sourceHost = options.sourceHost ?? "external";
+    emitProgress(options.onProgress, `Importing ${sourceHost} session into Codex.`, "transferring");
     try {
-      await requestExternalAgentSessionImport(client, externalAgentSessionMigration(options.sourcePath, cwd));
+      const completion = await requestExternalAgentSessionImport(
+        client,
+        externalAgentSessionMigration(options.sourcePath, cwd, sourceHost)
+      );
+      const sessionFailures = completion?.itemTypeResults
+        ?.filter((result) => result?.itemType === "SESSIONS")
+        .flatMap((result) => result.failures ?? []);
+      if (sessionFailures?.length) {
+        throw new Error(sessionFailures.map((failure) => failure.message).filter(Boolean).join("\n"));
+      }
     } catch (error) {
       if (error?.rpcCode === -32601) {
         throw new Error(
-          "This Codex version does not support Claude session transfer. Update Codex with `npm install -g @openai/codex@latest`, then retry.",
+          "This Codex version does not support external session transfer. Update Codex with `npm install -g @openai/codex@latest`, then retry.",
           { cause: error }
         );
       }
@@ -1081,15 +1102,15 @@ export async function importExternalAgentSession(cwd, options = {}) {
     if (!threadId) {
       const stderr = cleanCodexStderr(client.stderr);
       throw new Error(
-        `Codex reported that the Claude import completed, but did not record an imported thread.${stderr ? `\n${stderr}` : " Check the Codex app-server logs for the underlying import error."}`
+        `Codex reported that the external session import completed, but did not record an imported thread.${stderr ? `\n${stderr}` : " Check the Codex app-server logs for the underlying import error."}`
       );
     }
-    emitProgress(options.onProgress, `Claude session imported (${threadId}).`, "completed", { threadId });
+    emitProgress(options.onProgress, `External session imported (${threadId}).`, "completed", { threadId });
     return {
       threadId,
       stderr: cleanCodexStderr(client.stderr)
     };
-  });
+  }, appServerOptions);
 }
 
 export async function runAppServerTurn(cwd, options = {}) {
