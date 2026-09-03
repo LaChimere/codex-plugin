@@ -1,17 +1,31 @@
 ---
 name: codex-cli-runtime
-description: Internal helper contract for calling the codex-companion runtime from Claude Code
+description: Internal helper contract for calling the codex-companion runtime from a supported host
 user-invocable: false
 ---
 
 # Codex Runtime
 
-Use this skill only inside the `codex:codex-rescue` subagent.
+Use this skill only as an internal helper for Codex plugin commands or the `codex:codex-rescue`
+subagent.
 
-Primary helper:
-- `node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" task "<raw arguments>"`
+Runtime entrypoint:
+- `node "${CLAUDE_PLUGIN_ROOT:-${COPILOT_PLUGIN_ROOT:-${PLUGIN_ROOT}}}/scripts/codex-companion.mjs" <command> "<raw arguments>"`
 
-Execution rules:
+Plugin root resolution:
+- Use `CLAUDE_PLUGIN_ROOT`, `COPILOT_PLUGIN_ROOT`, or `PLUGIN_ROOT` when one is already set.
+- A Copilot slash-command context reports a concrete `Base directory for this skill` ending in
+  `/commands`. If the root variables are unset, its parent directory is the plugin root. Export that
+  absolute parent as `PLUGIN_ROOT` before invoking the runtime. Do not use an inline environment
+  assignment because the shell expands the command path before applying it.
+- Resolve the root from that supplied base directory directly. Do not search the repository for the
+  runtime.
+- Outside a rescue handoff, run the command selected by the invoking command file and return its
+  output as instructed there. The rescue-only rules below do not change that command selection.
+
+Rescue execution rules:
+
+- Rescue helper: `node "${CLAUDE_PLUGIN_ROOT:-${COPILOT_PLUGIN_ROOT:-${PLUGIN_ROOT}}}/scripts/codex-companion.mjs" task "<raw arguments>"`
 - The rescue subagent is a forwarder, not an orchestrator. Its only job is to invoke `task` once and return that stdout unchanged.
 - Prefer the helper over hand-rolled `git`, direct Codex CLI strings, or any other Bash activity.
 - Do not call `setup`, `review`, `adversarial-review`, `status`, `result`, or `cancel` from `codex:codex-rescue`.
