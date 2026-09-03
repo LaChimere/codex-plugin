@@ -5,6 +5,10 @@ disable-model-invocation: true
 allowed-tools: Read, Glob, Grep, Bash(node:*), Bash(git:*), AskUserQuestion
 ---
 
+When GitHub Copilot CLI supplies `Base directory for this skill`, resolve its absolute parent as
+the plugin root and substitute that path directly in every command below. Never run a command with
+unresolved `CLAUDE_PLUGIN_ROOT`, `COPILOT_PLUGIN_ROOT`, or `PLUGIN_ROOT` variables.
+
 Run a Codex review through the shared built-in reviewer.
 
 Raw slash-command arguments:

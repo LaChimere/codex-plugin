@@ -86,6 +86,17 @@ test("continue is not exposed as a user-facing command", () => {
   ]);
 });
 
+test("shared commands resolve the Copilot skill base before invoking the runtime", () => {
+  const commandFiles = fs.readdirSync(path.join(PLUGIN_ROOT, "commands")).sort();
+
+  for (const commandFile of commandFiles) {
+    const source = read(path.join("commands", commandFile));
+    assert.match(source, /Base directory for this skill/, commandFile);
+    assert.match(source, /absolute parent as\s+the plugin root/i, commandFile);
+    assert.match(source, /Never run a command with\s+unresolved `CLAUDE_PLUGIN_ROOT`/i, commandFile);
+  }
+});
+
 test("rescue command calls the shared runtime directly and absorbs continue semantics", () => {
   const rescue = read("commands/rescue.md");
   const agent = read("agents/codex-rescue.md");
@@ -178,6 +189,9 @@ test("transfer, result, and cancel commands are exposed as deterministic runtime
 
   assert.match(transfer, /disable-model-invocation:\s*true/);
   assert.match(transfer, /codex-companion\.mjs" transfer "\$ARGUMENTS"/);
+  assert.match(transfer, /Base directory for this skill/);
+  assert.match(transfer, /absolute parent as\s+the plugin root/i);
+  assert.match(transfer, /Replace `<absolute-plugin-root>` with that resolved path/i);
   assert.match(transfer, /codex resume <session-id>/);
   assert.match(result, /disable-model-invocation:\s*true/);
   assert.match(result, /codex-companion\.mjs" result "\$ARGUMENTS"/);
