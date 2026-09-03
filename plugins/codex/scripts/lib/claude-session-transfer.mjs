@@ -149,7 +149,6 @@ export async function prepareSessionTransfer(cwd, options = {}) {
     importPath,
     externalAgentHome,
     cwd: exported.cwd || cwd,
-    sourceVersion: exported.sourceVersion,
     stats: exported.stats
   };
 }

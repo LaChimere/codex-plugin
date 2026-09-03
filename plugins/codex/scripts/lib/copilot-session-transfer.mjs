@@ -48,7 +48,6 @@ function copilotEventToRecord(event, state) {
     if (typeof eventCwd === "string" && eventCwd.trim()) {
       state.cwd = eventCwd;
     }
-    state.sourceVersion = data.version ?? null;
     return null;
   }
 
@@ -173,7 +172,6 @@ export async function exportCopilotSession(sourcePath, outputPath, options = {})
   const output = fs.createWriteStream(tempPath, { encoding: "utf8", mode: 0o600 });
   const state = {
     cwd: options.fallbackCwd,
-    sourceVersion: null,
     stats: {
       sourceBytes: snapshotBytes,
       userMessages: 0,
@@ -237,9 +235,7 @@ export async function exportCopilotSession(sourcePath, outputPath, options = {})
     }
     fs.renameSync(tempPath, outputPath);
     return {
-      outputPath,
       cwd: state.cwd,
-      sourceVersion: state.sourceVersion,
       stats: state.stats
     };
   } catch (error) {
