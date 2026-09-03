@@ -15,9 +15,16 @@ import {
 } from "./lib/broker-lifecycle.mjs";
 import { loadState, resolveStateFile, saveState } from "./lib/state.mjs";
 import { TRANSCRIPT_PATH_ENV } from "./lib/claude-session-transfer.mjs";
+import {
+  CLAUDE_SESSION_ID_ENV,
+  forgetPluginDataDir,
+  getPluginDataDir,
+  normalizeHookInput,
+  rememberPluginDataDir
+} from "./lib/host.mjs";
 import { resolveWorkspaceRoot } from "./lib/workspace.mjs";
 
-export const SESSION_ID_ENV = "CODEX_COMPANION_SESSION_ID";
+export const SESSION_ID_ENV = CLAUDE_SESSION_ID_ENV;
 const PLUGIN_DATA_ENV = "CLAUDE_PLUGIN_DATA";
 
 function readHookInput() {
@@ -75,13 +82,19 @@ function cleanupSessionJobs(cwd, sessionId) {
 }
 
 function handleSessionStart(input) {
-  appendEnvVar(SESSION_ID_ENV, input.session_id);
-  appendEnvVar(TRANSCRIPT_PATH_ENV, input.transcript_path);
-  appendEnvVar(PLUGIN_DATA_ENV, process.env[PLUGIN_DATA_ENV]);
+  const normalized = normalizeHookInput(input, process.env);
+  const pluginDataDir = getPluginDataDir(process.env);
+  if (!process.env.CLAUDE_ENV_FILE) {
+    rememberPluginDataDir(normalized.sessionId, pluginDataDir);
+  }
+  appendEnvVar(SESSION_ID_ENV, normalized.sessionId);
+  appendEnvVar(TRANSCRIPT_PATH_ENV, normalized.transcriptPath);
+  appendEnvVar(PLUGIN_DATA_ENV, pluginDataDir);
 }
 
 async function handleSessionEnd(input) {
-  const cwd = input.cwd || process.cwd();
+  const normalized = normalizeHookInput(input, process.env);
+  const cwd = normalized.cwd || process.cwd();
   const brokerSession =
     loadBrokerSession(cwd) ??
     (process.env[BROKER_ENDPOINT_ENV]
@@ -101,7 +114,8 @@ async function handleSessionEnd(input) {
     await sendBrokerShutdown(brokerEndpoint);
   }
 
-  cleanupSessionJobs(cwd, input.session_id || process.env[SESSION_ID_ENV]);
+  cleanupSessionJobs(cwd, normalized.sessionId);
+  forgetPluginDataDir(normalized.sessionId);
   teardownBrokerSession({
     endpoint: brokerEndpoint,
     pidFile,
@@ -117,12 +131,12 @@ async function main() {
   const input = readHookInput();
   const eventName = process.argv[2] ?? input.hook_event_name ?? "";
 
-  if (eventName === "SessionStart") {
+  if (eventName === "SessionStart" || eventName === "sessionStart") {
     handleSessionStart(input);
     return;
   }
 
-  if (eventName === "SessionEnd") {
+  if (eventName === "SessionEnd" || eventName === "sessionEnd") {
     await handleSessionEnd(input);
   }
 }

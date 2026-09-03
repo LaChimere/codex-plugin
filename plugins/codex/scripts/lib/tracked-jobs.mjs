@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import process from "node:process";
 
+import { CLAUDE_SESSION_ID_ENV, getCurrentSessionId } from "./host.mjs";
 import { readJobFile, resolveJobFile, resolveJobLogFile, upsertJob, writeJobFile } from "./state.mjs";
 
-export const SESSION_ID_ENV = "CODEX_COMPANION_SESSION_ID";
+export const SESSION_ID_ENV = CLAUDE_SESSION_ID_ENV;
 
 export function nowIso() {
   return new Date().toISOString();
@@ -59,7 +60,7 @@ export function createJobLogFile(workspaceRoot, jobId, title) {
 
 export function createJobRecord(base, options = {}) {
   const env = options.env ?? process.env;
-  const sessionId = env[options.sessionIdEnv ?? SESSION_ID_ENV];
+  const sessionId = options.sessionIdEnv ? env[options.sessionIdEnv] : getCurrentSessionId(env);
   return {
     ...base,
     createdAt: nowIso(),
