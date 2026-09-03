@@ -4,6 +4,10 @@ argument-hint: '[--enable-review-gate|--disable-review-gate]'
 allowed-tools: Bash(node:*), Bash(npm:*), AskUserQuestion
 ---
 
+When GitHub Copilot CLI supplies `Base directory for this skill`, resolve its absolute parent as
+the plugin root and substitute that path directly in every command below. Never run a command with
+unresolved `CLAUDE_PLUGIN_ROOT`, `COPILOT_PLUGIN_ROOT`, or `PLUGIN_ROOT` variables.
+
 Run:
 
 ```bash
