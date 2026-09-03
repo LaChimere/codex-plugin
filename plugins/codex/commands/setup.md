@@ -7,11 +7,11 @@ allowed-tools: Bash(node:*), Bash(npm:*), AskUserQuestion
 Run:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" setup --json $ARGUMENTS
+node "${CLAUDE_PLUGIN_ROOT:-${COPILOT_PLUGIN_ROOT:-${PLUGIN_ROOT}}}/scripts/codex-companion.mjs" setup --json $ARGUMENTS
 ```
 
 If the result says Codex is unavailable and npm is available:
-- Use `AskUserQuestion` exactly once to ask whether Claude should install Codex now.
+- Use the host's user-question tool exactly once to ask whether it should install Codex now.
 - Put the install option first and suffix it with `(Recommended)`.
 - Use these two options:
   - `Install Codex (Recommended)`
@@ -25,7 +25,7 @@ npm install -g @openai/codex
 - Then rerun:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" setup --json $ARGUMENTS
+node "${CLAUDE_PLUGIN_ROOT:-${COPILOT_PLUGIN_ROOT:-${PLUGIN_ROOT}}}/scripts/codex-companion.mjs" setup --json $ARGUMENTS
 ```
 
 If Codex is already installed or npm is unavailable:
