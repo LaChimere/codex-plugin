@@ -1,7 +1,7 @@
 {
-  "name": "openai-codex",
+  "name": "lachimere-codex",
   "owner": {
-    "name": "OpenAI"
+    "name": "LaChimere"
   },
   "metadata": {
     "description": "Codex plugins for Claude Code and GitHub Copilot CLI delegation and code review.",

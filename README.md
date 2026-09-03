@@ -5,6 +5,12 @@ Use Codex from inside Claude Code or GitHub Copilot CLI for code reviews or to d
 This plugin is for users who want an easy way to start using Codex from the agent workflow they
 already have.
 
+> [!NOTE]
+> This repository is an independently maintained fork of
+> [`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc). It preserves the upstream
+> Claude Code integration, adds GitHub Copilot CLI support, and periodically merges upstream
+> changes. It is not an official OpenAI distribution channel.
+
 <video src="./docs/plugin-demo.webm" controls muted playsinline autoplay></video>
 
 ## What You Get
@@ -32,13 +38,19 @@ Add the marketplace in Claude Code:
 Install the plugin:
 
 ```bash
-/plugin install codex@openai-codex
+/plugin install codex@lachimere-codex
 ```
 
 Reload plugins:
 
 ```bash
 /reload-plugins
+```
+
+Update the installed plugin after this repository publishes new changes:
+
+```bash
+claude plugin update codex@lachimere-codex
 ```
 
 ### GitHub Copilot CLI
@@ -59,6 +71,13 @@ You can confirm that Copilot loaded it with:
 
 ```bash
 copilot plugin list
+```
+
+Update or uninstall the directly installed plugin with:
+
+```bash
+copilot plugin update codex
+copilot plugin uninstall codex
 ```
 
 ### Set Up Codex
