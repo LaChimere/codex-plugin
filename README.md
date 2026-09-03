@@ -228,8 +228,9 @@ manual override. Claude sources must be under `~/.claude/projects`. Copilot sour
 
 Claude sessions are passed directly to Codex's external-agent importer. Copilot sessions are
 streamed into the same importer format first, preserving the main user and assistant conversation
-plus bounded tool context while omitting internal continuation messages, subagent messages, and
-attachment contents. The converted file lives in the plugin data directory rather than the user's
+while omitting tool payloads, internal continuation messages, subagent messages, and attachment
+contents. Adjacent assistant chunks from one response are combined so long Copilot sessions remain
+usable after transfer. The converted file lives in the plugin data directory rather than the user's
 Claude history. Repeating the transfer after the host session grows updates the same Codex thread
 until that thread is continued in Codex. Once both the host session and Codex thread have continued,
 Codex's native importer does not merge the diverged histories. Older Codex versions that do not
