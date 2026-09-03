@@ -15,9 +15,9 @@ Runtime entrypoint:
 Plugin root resolution:
 - Use `CLAUDE_PLUGIN_ROOT`, `COPILOT_PLUGIN_ROOT`, or `PLUGIN_ROOT` when one is already set.
 - A Copilot slash-command context reports a concrete `Base directory for this skill` ending in
-  `/commands`. If the root variables are unset, its parent directory is the plugin root. Export that
-  absolute parent as `PLUGIN_ROOT` before invoking the runtime. Do not use an inline environment
-  assignment because the shell expands the command path before applying it.
+  `/commands`. If the root variables are unset, copy that absolute path and replace only the final
+  `/commands` component with `/scripts`. Do not remove any other path component. Append
+  `/codex-companion.mjs` and invoke that absolute script path directly.
 - Resolve the root from that supplied base directory directly. Do not search the repository for the
   runtime.
 - Outside a rescue handoff, run the command selected by the invoking command file and return its

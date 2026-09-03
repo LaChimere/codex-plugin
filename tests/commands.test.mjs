@@ -92,8 +92,10 @@ test("shared commands resolve the Copilot skill base before invoking the runtime
   for (const commandFile of commandFiles) {
     const source = read(path.join("commands", commandFile));
     assert.match(source, /Base directory for this skill/, commandFile);
-    assert.match(source, /absolute parent as\s+the plugin root/i, commandFile);
-    assert.match(source, /Never run a command with\s+unresolved `CLAUDE_PLUGIN_ROOT`/i, commandFile);
+    assert.match(source, /replace only its final `\/commands` component with `\/scripts`/i, commandFile);
+    assert.match(source, /Do not remove any other path component/i, commandFile);
+    assert.match(source, /Never\s+run a command with\s+unresolved `CLAUDE_PLUGIN_ROOT`/i, commandFile);
+    assert.doesNotMatch(source, /absolute parent/i, commandFile);
   }
 });
 
@@ -151,7 +153,9 @@ test("rescue command calls the shared runtime directly and absorbs continue sema
   assert.match(agent, /Do not use that skill to inspect the repository, reason through the problem yourself, draft a solution, or do any independent work/i);
   assert.match(runtimeSkill, /only job is to invoke `task` once and return that stdout unchanged/i);
   assert.match(runtimeSkill, /Base directory for this skill/i);
-  assert.match(runtimeSkill, /Export that\s+absolute parent as `PLUGIN_ROOT` before invoking the runtime/i);
+  assert.match(runtimeSkill, /replace only the final\s+`\/commands` component with `\/scripts`/i);
+  assert.match(runtimeSkill, /Do not remove any other path component/i);
+  assert.doesNotMatch(runtimeSkill, /absolute parent/i);
   assert.match(runtimeSkill, /Do not search the repository for the\s+runtime/i);
   assert.match(runtimeSkill, /Do not call `setup`, `review`, `adversarial-review`, `status`, `result`, or `cancel`/i);
   assert.match(runtimeSkill, /use the `gpt-5-4-prompting` skill to rewrite the user's request into a tighter Codex prompt/i);
@@ -190,8 +194,8 @@ test("transfer, result, and cancel commands are exposed as deterministic runtime
   assert.match(transfer, /disable-model-invocation:\s*true/);
   assert.match(transfer, /codex-companion\.mjs" transfer "\$ARGUMENTS"/);
   assert.match(transfer, /Base directory for this skill/);
-  assert.match(transfer, /absolute parent as\s+the plugin root/i);
-  assert.match(transfer, /Replace `<absolute-plugin-root>` with that resolved path/i);
+  assert.match(transfer, /replace only its final `\/commands` component with `\/scripts`/i);
+  assert.match(transfer, /Replace `<absolute-script-path>` with the mechanically resolved path/i);
   assert.match(transfer, /codex resume <session-id>/);
   assert.match(result, /disable-model-invocation:\s*true/);
   assert.match(result, /codex-companion\.mjs" result "\$ARGUMENTS"/);
