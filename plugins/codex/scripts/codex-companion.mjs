@@ -21,9 +21,10 @@ import {
     runAppServerReview,
     runAppServerTurn
   } from "./lib/codex.mjs";
-import { resolveClaudeSessionPath } from "./lib/claude-session-transfer.mjs";
+import { prepareSessionTransfer } from "./lib/claude-session-transfer.mjs";
 import { readStdinIfPiped } from "./lib/fs.mjs";
 import { collectReviewContext, ensureGitRepository, resolveReviewTarget } from "./lib/git.mjs";
+import { getCurrentSessionId } from "./lib/host.mjs";
 import { binaryAvailable, terminateProcessTree } from "./lib/process.mjs";
 import { loadPromptTemplate, interpolateTemplate } from "./lib/prompts.mjs";
 import {
@@ -49,8 +50,7 @@ import {
   createJobRecord,
   createProgressReporter,
   nowIso,
-  runTrackedJob,
-  SESSION_ID_ENV
+  runTrackedJob
 } from "./lib/tracked-jobs.mjs";
 import { resolveWorkspaceRoot } from "./lib/workspace.mjs";
 import {
@@ -70,7 +70,7 @@ const DEFAULT_STATUS_WAIT_TIMEOUT_MS = 240000;
 const DEFAULT_STATUS_POLL_INTERVAL_MS = 2000;
 const VALID_REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
 const MODEL_ALIASES = new Map([["spark", "gpt-5.3-codex-spark"]]);
-const STOP_REVIEW_TASK_MARKER = "Run a stop-gate review of the previous Claude turn.";
+const STOP_REVIEW_TASK_MARKER = "Run a stop-gate review of the previous host-agent turn.";
 
 function printUsage() {
   console.log(
@@ -291,12 +291,8 @@ function isActiveJobStatus(status) {
   return status === "queued" || status === "running";
 }
 
-function getCurrentClaudeSessionId() {
-  return process.env[SESSION_ID_ENV] ?? null;
-}
-
-function filterJobsForCurrentClaudeSession(jobs) {
-  const sessionId = getCurrentClaudeSessionId();
+function filterJobsForCurrentSession(jobs) {
+  const sessionId = getCurrentSessionId(process.env);
   if (!sessionId) {
     return jobs;
   }
@@ -335,9 +331,9 @@ async function waitForSingleJobSnapshot(cwd, reference, options = {}) {
 
 async function resolveLatestTrackedTaskThread(cwd, options = {}) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
-  const sessionId = getCurrentClaudeSessionId();
+  const sessionId = getCurrentSessionId(process.env);
   const jobs = sortJobsNewestFirst(listJobs(workspaceRoot)).filter((job) => job.id !== options.excludeJobId);
-  const visibleJobs = filterJobsForCurrentClaudeSession(jobs);
+  const visibleJobs = filterJobsForCurrentSession(jobs);
   const activeTask = visibleJobs.find((job) => job.jobClass === "task" && (job.status === "queued" || job.status === "running"));
   if (activeTask) {
     throw new Error(`Task ${activeTask.id} is still running. Use /codex:status before continuing it.`);
@@ -541,7 +537,7 @@ function buildTaskRunMetadata({ prompt, resumeLast = false }) {
   if (!resumeLast && String(prompt ?? "").includes(STOP_REVIEW_TASK_MARKER)) {
     return {
       title: "Codex Stop Gate Review",
-      summary: "Stop-gate review of previous Claude turn"
+      summary: "Stop-gate review of previous host-agent turn"
     };
   }
 
@@ -614,8 +610,9 @@ function buildTaskRequest({ cwd, model, effort, prompt, write, resumeLast, jobId
 }
 
 function renderTransferResult(payload) {
+  const hostName = payload.host === "copilot" ? "GitHub Copilot CLI" : "Claude Code";
   const lines = [
-    "Transferred the Claude session into a Codex thread with visible turn history.",
+    `Transferred the ${hostName} session into a Codex thread with visible turn history.`,
     `Codex session ID: ${payload.threadId}`,
     `Resume in Codex: ${payload.resumeCommand}`
   ];
@@ -623,15 +620,22 @@ function renderTransferResult(payload) {
 }
 
 async function executeTransfer(cwd, options = {}) {
-  const sourcePath = resolveClaudeSessionPath(cwd, {
-    source: options.source
+  const session = await prepareSessionTransfer(cwd, {
+    source: options.source,
+    env: process.env
   });
-  const result = await importExternalAgentSession(cwd, { sourcePath });
+  const result = await importExternalAgentSession(session.cwd, {
+    sourcePath: session.importPath,
+    sourceHost: session.host,
+    externalAgentHome: session.externalAgentHome
+  });
   const payload = {
+    host: session.host,
     threadId: result.threadId,
     resumeCommand: `codex resume ${result.threadId}`,
-    sourcePath,
-    sessionId: path.basename(sourcePath, ".jsonl")
+    sourcePath: session.sourcePath,
+    sessionId: session.sessionId,
+    ...(session.stats ? { transferStats: session.stats } : {})
   };
 
   return {
@@ -762,7 +766,7 @@ async function handleReview(argv) {
 async function handleTask(argv) {
   const { options, positionals } = parseCommandInput(argv, {
     valueOptions: ["model", "effort", "cwd", "prompt-file"],
-    booleanOptions: ["json", "write", "resume-last", "resume", "fresh", "background"],
+    booleanOptions: ["json", "write", "resume-last", "resume", "fresh", "background", "wait"],
     aliasMap: {
       m: "model"
     }
@@ -933,8 +937,8 @@ function handleTaskResumeCandidate(argv) {
 
   const cwd = resolveCommandCwd(options);
   const workspaceRoot = resolveCommandWorkspace(options);
-  const sessionId = getCurrentClaudeSessionId();
-  const jobs = filterJobsForCurrentClaudeSession(sortJobsNewestFirst(listJobs(workspaceRoot)));
+  const sessionId = getCurrentSessionId(process.env);
+  const jobs = filterJobsForCurrentSession(sortJobsNewestFirst(listJobs(workspaceRoot)));
   const candidate = findLatestResumableTaskJob(jobs);
 
   const payload = {

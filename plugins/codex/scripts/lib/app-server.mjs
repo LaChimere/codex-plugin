@@ -25,7 +25,7 @@ export const BROKER_BUSY_RPC_CODE = -32001;
 /** @type {ClientInfo} */
 const DEFAULT_CLIENT_INFO = {
   title: "Codex Plugin",
-  name: "Claude Code",
+  name: process.env.COPILOT_AGENT_SESSION_ID ? "GitHub Copilot CLI" : "Claude Code",
   version: PLUGIN_MANIFEST.version ?? "0.0.0"
 };
 

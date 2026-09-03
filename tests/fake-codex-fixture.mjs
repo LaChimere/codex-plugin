@@ -39,6 +39,28 @@ function now() {
   return Math.floor(Date.now() / 1000);
 }
 
+function externalMessageText(content) {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return "";
+  }
+  return content.map((block) => {
+    if (block?.type === "text") {
+      return block.text || "";
+    }
+    if (block?.type === "tool_use") {
+      return "[external_agent_tool_call: " + (block.name || "unknown") + "]";
+    }
+    if (block?.type === "tool_result") {
+      const label = block.is_error ? "[external_agent_tool_result: error]" : "[external_agent_tool_result]";
+      return label + (block.content ? "\\n" + block.content : "");
+    }
+    return "";
+  }).filter(Boolean).join("\\n\\n");
+}
+
 function buildThread(thread) {
   return {
     id: thread.id,
@@ -233,7 +255,7 @@ function structuredReviewPayload(prompt) {
 }
 
 function taskPayload(prompt, resume) {
-  if (prompt.includes("<task>") && prompt.includes("Only review the work from the previous Claude turn.")) {
+  if (prompt.includes("<task>") && prompt.includes("Only review the work from the previous host-agent turn.")) {
     if (BEHAVIOR === "adversarial-clean") {
       return "ALLOW: No blocking issues found in the previous turn.";
     }
@@ -371,18 +393,23 @@ rl.on("line", (line) => {
         const contents = fs.readFileSync(sourcePath, "utf8");
         const contentSha256 = crypto.createHash("sha256").update(contents).digest("hex");
         const ledger = loadImportLedger();
-        let record = ledger.records.find(
-          (candidate) => candidate.source_path === sourcePath && candidate.content_sha256 === contentSha256
-        );
+        let record = ledger.records.find((candidate) => candidate.source_path === sourcePath);
+        const records = contents.split(/\\r?\\n/).filter(Boolean).map((line) => JSON.parse(line));
+        const title = records.find((entry) => entry.type === "custom-title")?.customTitle || null;
+        const messages = records
+          .filter((entry) => entry.type === "user" || entry.type === "assistant")
+          .map((entry) => ({ role: entry.type, text: externalMessageText(entry.message?.content) }))
+          .filter((entry) => entry.text);
         let thread;
         if (record) {
           thread = ensureThread(state, record.imported_thread_id);
+          thread.visibleMessages = messages;
+          record.content_sha256 = contentSha256;
+          record.imported_at = now();
+          state.lastExternalAgentImport = { sourcePath, threadId: thread.id, messages };
+          saveState(state);
+          saveImportLedger(ledger);
         } else {
-          const records = contents.split(/\\r?\\n/).filter(Boolean).map((line) => JSON.parse(line));
-          const title = records.find((entry) => entry.type === "custom-title")?.customTitle || null;
-          const messages = records
-            .filter((entry) => entry.type === "user" || entry.type === "assistant")
-            .map((entry) => ({ role: entry.type, text: entry.message?.content || "" }));
           thread = nextThread(state, session.cwd, false);
           thread.name = title;
           thread.preview = messages.find((entry) => entry.role === "user")?.text || "";
