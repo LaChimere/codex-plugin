@@ -127,6 +127,9 @@ async function processLine(line, output, state) {
     state.stats.malformedLines += 1;
     return;
   }
+  if (event?.type === "session.start") {
+    await flushPendingAssistant(output, state);
+  }
   const record = copilotEventToRecord(event, state);
   if (record) {
     await writeRecord(output, state, record);

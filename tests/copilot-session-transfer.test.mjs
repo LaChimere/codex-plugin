@@ -165,6 +165,25 @@ test("Copilot session export stays bounded when a turn contains many tool events
   assert.ok(fs.statSync(outputPath).size < 1_000);
 });
 
+test("Copilot session export does not merge assistant text across session starts", async () => {
+  const root = makeTempDir();
+  const sourcePath = path.join(root, "events.jsonl");
+  const outputPath = path.join(root, "export.jsonl");
+  writeEvents(sourcePath, [
+    event("user.message", { content: "Initial request" }),
+    event("assistant.message", { content: "Initial response" }),
+    event("session.start", { version: 1, context: { cwd: root } }, "2026-09-03T04:00:00Z"),
+    event("assistant.message", { content: "Resumed response" }, "2026-09-03T04:01:00Z")
+  ]);
+
+  await exportCopilotSession(sourcePath, outputPath, { fallbackCwd: root });
+  const records = fs.readFileSync(outputPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+
+  assert.deepEqual(records.map((record) => record.type), ["user", "assistant", "assistant"]);
+  assert.equal(records[1].message.content, "Initial response");
+  assert.equal(records[2].message.content, "Resumed response");
+});
+
 test("session transfer resolves the current Copilot session and writes a stable import file", async () => {
   const root = makeTempDir();
   const repo = path.join(root, "repo");
