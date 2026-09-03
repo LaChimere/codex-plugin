@@ -340,6 +340,16 @@ test("transfer uses the invocation cwd when a Copilot session records a stale wo
   assert.equal(result.status, 0, result.stderr);
   const fakeState = JSON.parse(fs.readFileSync(path.join(binDir, "fake-codex-state.json"), "utf8"));
   assert.equal(fakeState.threads[0].cwd, fs.realpathSync(repo));
+  const importPath = path.join(
+    pluginData,
+    "external-agent-home",
+    ".claude",
+    "projects",
+    "copilot",
+    `${sessionId}.jsonl`
+  );
+  const importedRecords = fs.readFileSync(importPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.ok(importedRecords.every((record) => record.cwd === fs.realpathSync(repo)));
 });
 
 test("installed Copilot transfer derives plugin data without a session-start hook", () => {

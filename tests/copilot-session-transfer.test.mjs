@@ -61,7 +61,7 @@ test("Copilot session export preserves visible conversation and omits tool conte
   const result = await exportCopilotSession(sourcePath, outputPath, { fallbackCwd: root });
   const records = fs.readFileSync(outputPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
 
-  assert.equal(result.cwd, repo);
+  assert.equal(result.cwd, root);
   assert.equal(result.stats.userMessages, 1);
   assert.equal(result.stats.assistantMessages, 2);
   assert.equal(result.stats.toolCalls, 1);
@@ -71,6 +71,7 @@ test("Copilot session export preserves visible conversation and omits tool conte
   assert.equal(result.stats.attachmentsOmitted, 1);
   assert.equal(result.stats.malformedLines, 1);
   assert.deepEqual(records.map((record) => record.type), ["user", "assistant"]);
+  assert.ok(records.every((record) => record.cwd === root));
   assert.match(records[0].message.content, /Review this change/);
   assert.match(records[0].message.content, /Attachment omitted: design\.png, image\/png/);
   assert.equal(records[1].message.content, "I will inspect it.\n\nThe change looks safe.");

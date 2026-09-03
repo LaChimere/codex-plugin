@@ -19,10 +19,6 @@ function appendAttachmentMarkers(text, attachments) {
 function copilotEventToRecord(event, state) {
   const data = event?.data ?? {};
   if (event?.type === "session.start") {
-    const eventCwd = data.context?.cwd;
-    if (typeof eventCwd === "string" && eventCwd.trim()) {
-      state.cwd = eventCwd;
-    }
     return null;
   }
 
