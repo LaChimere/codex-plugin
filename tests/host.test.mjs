@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import path from "node:path";
 
 import {
   forgetPluginDataDir,
@@ -27,6 +28,29 @@ test("host helpers recall Copilot plugin data recorded by the session hook", () 
     forgetPluginDataDir(sessionId);
   }
   assert.equal(getPluginDataDir({ COPILOT_AGENT_SESSION_ID: sessionId }), null);
+});
+
+test("host helpers derive plugin data for an installed Copilot marketplace plugin", () => {
+  const copilotHome = path.join(path.sep, "tmp", "copilot-home");
+  const pluginRoot = path.join(copilotHome, "installed-plugins", "lachimere-codex", "codex");
+
+  assert.equal(
+    getPluginDataDir({ COPILOT_HOME: copilotHome }, pluginRoot),
+    path.join(copilotHome, "plugin-data", "lachimere-codex", "codex")
+  );
+});
+
+test("host helpers do not guess plugin data for direct or unrelated plugin roots", () => {
+  const copilotHome = path.join(path.sep, "tmp", "copilot-home");
+
+  assert.equal(
+    getPluginDataDir(
+      { COPILOT_HOME: copilotHome },
+      path.join(copilotHome, "installed-plugins", "_direct", "codex")
+    ),
+    null
+  );
+  assert.equal(getPluginDataDir({ COPILOT_HOME: copilotHome }, "/workspace/codex"), null);
 });
 
 test("hook normalization accepts Claude and Copilot field names", () => {

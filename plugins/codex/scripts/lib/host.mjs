@@ -3,10 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 export const CLAUDE_SESSION_ID_ENV = "CODEX_COMPANION_SESSION_ID";
 export const COPILOT_SESSION_ID_ENV = "COPILOT_AGENT_SESSION_ID";
 const COPILOT_PLUGIN_DATA_REGISTRY = path.join(os.tmpdir(), "codex-companion", "copilot-plugin-data");
+const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 function pluginDataRegistryFile(sessionId) {
   const digest = createHash("sha256").update(String(sessionId)).digest("hex");
@@ -29,10 +31,26 @@ export function getCurrentSessionId(env = process.env) {
   return env[CLAUDE_SESSION_ID_ENV] ?? env[COPILOT_SESSION_ID_ENV] ?? null;
 }
 
-export function getPluginDataDir(env = process.env) {
+function installedCopilotPluginDataDir(env, pluginRoot) {
+  const homeDir = env.COPILOT_HOME || path.join(env.HOME || os.homedir(), ".copilot");
+  const installedPluginsDir = path.resolve(homeDir, "installed-plugins");
+  const relative = path.relative(installedPluginsDir, path.resolve(pluginRoot));
+  const parts = relative.split(path.sep);
+  if (
+    parts.length !== 2 ||
+    parts[0] === "_direct" ||
+    parts.some((part) => !part || part === "." || part === "..")
+  ) {
+    return null;
+  }
+  return path.join(path.resolve(homeDir), "plugin-data", parts[0], parts[1]);
+}
+
+export function getPluginDataDir(env = process.env, pluginRoot = PLUGIN_ROOT) {
   return (
     env.CLAUDE_PLUGIN_DATA ??
     env.COPILOT_PLUGIN_DATA ??
+    installedCopilotPluginDataDir(env, pluginRoot) ??
     recalledPluginDataDir(env[COPILOT_SESSION_ID_ENV]) ??
     null
   );
