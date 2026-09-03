@@ -3,7 +3,6 @@ import path from "node:path";
 import { once } from "node:events";
 
 const MAX_EVENT_LINE_BYTES = 8 * 1024 * 1024;
-const MAX_TOOL_RESULT_CHARS = 4_000;
 
 function appendAttachmentMarkers(text, attachments) {
   if (!Array.isArray(attachments) || attachments.length === 0) {
@@ -15,30 +14,6 @@ function appendAttachmentMarkers(text, attachments) {
     return `[Attachment omitted: ${name}, ${mimeType}]`;
   });
   return [text, ...markers].filter(Boolean).join("\n\n");
-}
-
-function formatToolResult(data) {
-  const result = data?.result;
-  let value;
-  if (typeof result?.content === "string") {
-    value = result.content;
-  } else if (typeof result?.detailedContent === "string") {
-    value = result.detailedContent;
-  } else if (result != null) {
-    value = "[Non-text tool result omitted]";
-  } else if (data?.error != null) {
-    if (typeof data.error === "string") {
-      value = data.error;
-    } else if (typeof data.error?.message === "string") {
-      const code = data.error.code == null ? "" : ` (${String(data.error.code)})`;
-      value = `${data.error.message}${code}`;
-    } else {
-      value = "[Non-text tool error omitted]";
-    }
-  } else {
-    value = "";
-  }
-  return String(value).slice(0, MAX_TOOL_RESULT_CHARS);
 }
 
 function copilotEventToRecord(event, state) {
@@ -95,21 +70,7 @@ function copilotEventToRecord(event, state) {
       return null;
     }
     state.stats.toolCalls += 1;
-    return {
-      type: "assistant",
-      cwd: state.cwd,
-      timestamp: event.timestamp,
-      message: {
-        content: [
-          {
-            type: "tool_use",
-            id: data.toolCallId,
-            name: data.toolName ?? data.mcpToolName ?? "unknown",
-            input: data.arguments ?? {}
-          }
-        ]
-      }
-    };
+    return null;
   }
 
   if (event?.type === "tool.execution_complete") {
@@ -118,21 +79,7 @@ function copilotEventToRecord(event, state) {
       return null;
     }
     state.stats.toolResults += 1;
-    return {
-      type: "assistant",
-      cwd: state.cwd,
-      timestamp: event.timestamp,
-      message: {
-        content: [
-          {
-            type: "tool_result",
-            tool_use_id: data.toolCallId,
-            is_error: data.success === false,
-            content: formatToolResult(data)
-          }
-        ]
-      }
-    };
+    return null;
   }
 
   return null;

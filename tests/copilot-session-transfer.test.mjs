@@ -18,7 +18,7 @@ function writeEvents(filePath, lines) {
   fs.writeFileSync(filePath, `${lines.join("\n")}\n`, "utf8");
 }
 
-test("Copilot session export preserves main conversation and bounded tool context", async () => {
+test("Copilot session export preserves visible conversation and omits tool context", async () => {
   const root = makeTempDir();
   const repo = path.join(root, "repo");
   const sourcePath = path.join(root, "events.jsonl");
@@ -70,13 +70,11 @@ test("Copilot session export preserves main conversation and bounded tool contex
   assert.equal(result.stats.ignoredSubagentMessages, 2);
   assert.equal(result.stats.attachmentsOmitted, 1);
   assert.equal(result.stats.malformedLines, 1);
-  assert.deepEqual(records.map((record) => record.type), ["user", "assistant", "assistant", "assistant", "assistant"]);
+  assert.deepEqual(records.map((record) => record.type), ["user", "assistant", "assistant"]);
   assert.match(records[0].message.content, /Review this change/);
   assert.match(records[0].message.content, /Attachment omitted: design\.png, image\/png/);
-  assert.equal(records[2].message.content[0].type, "tool_use");
-  assert.equal(records[2].message.content[0].name, "bash");
-  assert.equal(records[3].message.content[0].type, "tool_result");
-  assert.equal(records[3].message.content[0].content, "diff output");
+  assert.equal(records[1].message.content, "I will inspect it.");
+  assert.equal(records[2].message.content, "The change looks safe.");
 
   const exported = fs.readFileSync(outputPath, "utf8");
   for (const excluded of [
@@ -86,6 +84,8 @@ test("Copilot session export preserves main conversation and bounded tool contex
     "PRIVATE ENCRYPTED VALUE",
     "PRIVATE BINARY DATA",
     "/secret/design.png",
+    "git diff",
+    "diff output",
     "child output",
     "internal skill prompt",
     "automatic continuation"
@@ -94,7 +94,7 @@ test("Copilot session export preserves main conversation and bounded tool contex
   }
 });
 
-test("Copilot session export links tool results and omits structured payloads", async () => {
+test("Copilot session export counts tool events without importing their payloads", async () => {
   const root = makeTempDir();
   const sourcePath = path.join(root, "events.jsonl");
   const outputPath = path.join(root, "export.jsonl");
@@ -122,17 +122,49 @@ test("Copilot session export links tool results and omits structured payloads", 
     })
   ]);
 
-  await exportCopilotSession(sourcePath, outputPath, { fallbackCwd: root });
+  const result = await exportCopilotSession(sourcePath, outputPath, { fallbackCwd: root });
   const records = fs.readFileSync(outputPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
-  const blocks = records.slice(1).map((record) => record.message.content[0]);
 
-  assert.equal(blocks[0].id, "call-a");
-  assert.equal(blocks[1].id, "call-b");
-  assert.equal(blocks[2].tool_use_id, "call-b");
-  assert.equal(blocks[2].content, "second result");
-  assert.equal(blocks[3].tool_use_id, "call-a");
-  assert.equal(blocks[3].content, "[Non-text tool result omitted]");
-  assert.doesNotMatch(fs.readFileSync(outputPath, "utf8"), /secret|BASE64_BINARY/);
+  assert.equal(result.stats.toolCalls, 2);
+  assert.equal(result.stats.toolResults, 2);
+  assert.deepEqual(records.map((record) => record.message.content), ["Run both checks"]);
+  assert.doesNotMatch(fs.readFileSync(outputPath, "utf8"), /first|second|secret|BASE64_BINARY/);
+});
+
+test("Copilot session export stays bounded when a turn contains many tool events", async () => {
+  const root = makeTempDir();
+  const sourcePath = path.join(root, "events.jsonl");
+  const outputPath = path.join(root, "export.jsonl");
+  const lines = [
+    event("user.message", { content: "Investigate the repository" }),
+    event("assistant.message", { content: "I will inspect it." })
+  ];
+  for (let index = 0; index < 500; index += 1) {
+    lines.push(
+      event("tool.execution_start", {
+        toolCallId: `call-${index}`,
+        toolName: "bash",
+        arguments: { command: `command-${index}` }
+      }),
+      event("tool.execution_complete", {
+        toolCallId: `call-${index}`,
+        success: true,
+        result: { content: "x".repeat(4_000) }
+      })
+    );
+  }
+  lines.push(event("assistant.message", { content: "Inspection complete." }));
+  writeEvents(sourcePath, lines);
+
+  const result = await exportCopilotSession(sourcePath, outputPath, { fallbackCwd: root });
+  const records = fs.readFileSync(outputPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+
+  assert.equal(result.stats.toolCalls, 500);
+  assert.equal(result.stats.toolResults, 500);
+  assert.deepEqual(records.map((record) => record.type), ["user", "assistant", "assistant"]);
+  assert.equal(records[1].message.content, "I will inspect it.");
+  assert.equal(records[2].message.content, "Inspection complete.");
+  assert.ok(fs.statSync(outputPath).size < 1_000);
 });
 
 test("session transfer resolves the current Copilot session and writes a stable import file", async () => {
