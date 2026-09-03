@@ -298,6 +298,48 @@ test("transfer converts the current Copilot session and appends later history to
   );
 });
 
+test("installed Copilot transfer derives plugin data without a session-start hook", () => {
+  const home = makeTempDir();
+  const repo = path.join(home, "repo");
+  const binDir = makeTempDir();
+  const sessionId = "12345678-1234-1234-1234-123456789abc";
+  const copilotHome = path.join(home, ".copilot");
+  const installedPlugin = path.join(copilotHome, "installed-plugins", "lachimere-codex", "codex");
+  const installedScript = path.join(installedPlugin, "scripts", "codex-companion.mjs");
+  const sourcePath = path.join(copilotHome, "session-state", sessionId, "events.jsonl");
+  const expectedPluginData = path.join(copilotHome, "plugin-data", "lachimere-codex", "codex");
+  fs.mkdirSync(repo, { recursive: true });
+  fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+  fs.cpSync(PLUGIN_ROOT, installedPlugin, { recursive: true });
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+  fs.writeFileSync(
+    sourcePath,
+    `${JSON.stringify({ type: "user.message", data: { content: "Installed plugin transfer" } })}\n`,
+    "utf8"
+  );
+
+  const result = run("node", [installedScript, "transfer", "--json"], {
+    cwd: repo,
+    env: {
+      ...buildEnv(binDir),
+      HOME: home,
+      CODEX_HOME: path.join(home, ".codex"),
+      COPILOT_HOME: copilotHome,
+      COPILOT_AGENT_SESSION_ID: sessionId
+    }
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).threadId, "thr_1");
+  assert.equal(
+    fs.existsSync(
+      path.join(expectedPluginData, "external-agent-home", ".claude", "projects", "copilot", `${sessionId}.jsonl`)
+    ),
+    true
+  );
+});
+
 test("transfer reports an actionable upgrade error when native import is unsupported", () => {
   const home = makeTempDir();
   const repo = path.join(home, "repo");
