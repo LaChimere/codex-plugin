@@ -1,9 +1,9 @@
-# Codex plugin for Claude Code
+# Codex plugin for Claude Code and GitHub Copilot CLI
 
-Use Codex from inside Claude Code for code reviews or to delegate tasks to Codex.
+Use Codex from inside Claude Code or GitHub Copilot CLI for code reviews or to delegate tasks to Codex.
 
-This plugin is for Claude Code users who want an easy way to start using Codex from the workflow
-they already have.
+This plugin is for users who want an easy way to start using Codex from the agent workflow they
+already have.
 
 <video src="./docs/plugin-demo.webm" controls muted playsinline autoplay></video>
 
@@ -21,10 +21,12 @@ they already have.
 
 ## Install
 
+### Claude Code
+
 Add the marketplace in Claude Code:
 
 ```bash
-/plugin marketplace add openai/codex-plugin-cc
+/plugin marketplace add LaChimere/codex-plugin
 ```
 
 Install the plugin:
@@ -38,6 +40,28 @@ Reload plugins:
 ```bash
 /reload-plugins
 ```
+
+### GitHub Copilot CLI
+
+Install the plugin directly from its repository subdirectory:
+
+```bash
+copilot plugin install LaChimere/codex-plugin:plugins/codex
+```
+
+For local development, load the checked-out plugin without installing it:
+
+```bash
+copilot --plugin-dir ./plugins/codex
+```
+
+You can confirm that Copilot loaded it with:
+
+```bash
+copilot plugin list
+```
+
+### Set Up Codex
 
 Then run:
 
@@ -62,7 +86,7 @@ If Codex is installed but not logged in yet, run:
 After install, you should see:
 
 - the slash commands listed below
-- the `codex:codex-rescue` subagent in `/agents`
+- in Claude Code, the `codex:codex-rescue` subagent in `/agents`
 
 One simple first run is:
 
@@ -125,7 +149,8 @@ This command is read-only. It does not fix code.
 
 ### `/codex:rescue`
 
-Hands a task to Codex through the `codex:codex-rescue` subagent.
+Hands a task to Codex through the shared Codex task runtime. In Claude Code, automatic delegation
+can also use the `codex:codex-rescue` subagent.
 
 Use it when you want Codex to:
 
@@ -164,18 +189,32 @@ Ask Codex to redesign the database connection to be more resilient.
 
 ### `/codex:transfer`
 
-Creates a persistent Codex thread from the current Claude Code session and prints a `codex resume <session-id>` command.
+Creates a persistent Codex thread from the current Claude Code or GitHub Copilot CLI session and
+prints a `codex resume <session-id>` command.
 
-Use it when you started a debugging or implementation conversation in Claude Code and want to continue that same context directly in Codex.
+Use it when you started a debugging or implementation conversation in either host and want to
+continue that same context directly in Codex.
 
 Examples:
 
 ```bash
 /codex:transfer
 /codex:transfer --source ~/.claude/projects/-Users-me-repo/<session-id>.jsonl
+/codex:transfer --source ~/.copilot/session-state/<session-id>/events.jsonl
 ```
 
-The plugin's existing `SessionStart` hook supplies the current transcript path automatically; `--source` is available as a manual override. The transfer uses Codex's external-agent session importer, so it follows the same conversion rules as importing Claude history in the Codex App and creates visible turns that can be continued in the App or TUI. The source must be under `~/.claude/projects`, and older Codex versions that do not expose session import must be upgraded before using this command.
+The plugin's session hook supplies the current session automatically; `--source` is available as a
+manual override. Claude sources must be under `~/.claude/projects`. Copilot sources must be the
+`events.jsonl` file under `~/.copilot/session-state/<session-id>`.
+
+Claude sessions are passed directly to Codex's external-agent importer. Copilot sessions are
+streamed into the same importer format first, preserving the main user and assistant conversation
+plus bounded tool context while omitting internal continuation messages, subagent messages, and
+attachment contents. The converted file lives in the plugin data directory rather than the user's
+Claude history. Repeating the transfer after the host session grows updates the same Codex thread
+until that thread is continued in Codex. Once both the host session and Codex thread have continued,
+Codex's native importer does not merge the diverged histories. Older Codex versions that do not
+expose session import must be upgraded before using this command.
 
 ### `/codex:status`
 
@@ -231,10 +270,12 @@ You can also use `/codex:setup` to manage the optional review gate.
 /codex:setup --disable-review-gate
 ```
 
-When the review gate is enabled, the plugin uses a `Stop` hook to run a targeted Codex review based on Claude's response. If that review finds issues, the stop is blocked so Claude can address them first.
+When the review gate is enabled, the plugin uses a `Stop` hook to run a targeted Codex review based
+on the host agent's response. If that review finds issues, the stop is blocked so the host agent can
+address them first.
 
 > [!WARNING]
-> The review gate can create a long-running Claude/Codex loop and may drain usage limits quickly. Only enable it when you plan to actively monitor the session.
+> The review gate can create a long-running host-agent/Codex loop and may drain usage limits quickly. Only enable it when you plan to actively monitor the session.
 
 ## Typical Flows
 
@@ -270,7 +311,7 @@ The Codex plugin wraps the [Codex app server](https://developers.openai.com/code
 
 ### Common Configurations
 
-If you want to change the default reasoning effort or the default model that gets used by the plugin, you can define that inside your user-level or project-level `config.toml`. For example to always use `gpt-5.4-mini` on `high` for a specific project you can add the following to a `.codex/config.toml` file at the root of the directory you started Claude in:
+If you want to change the default reasoning effort or the default model that gets used by the plugin, you can define that inside your user-level or project-level `config.toml`. For example to always use `gpt-5.4-mini` on `high` for a specific project you can add the following to a `.codex/config.toml` file at the root of the directory where you started the host agent:
 
 ```toml
 model = "gpt-5.4-mini"
@@ -297,7 +338,7 @@ This way you can review the Codex work or continue the work there.
 
 If you are already signed into Codex on this machine, that account should work immediately here too. This plugin uses your local Codex CLI authentication.
 
-If you only use Claude Code today and have not used Codex yet, you will also need to sign in to Codex with either a ChatGPT account or an API key. [Codex is available with your ChatGPT subscription](https://developers.openai.com/codex/pricing/), and [`codex login`](https://developers.openai.com/codex/cli/reference/#codex-login) supports both ChatGPT and API key sign-in. Run `/codex:setup` to check whether Codex is ready, and use `!codex login` if it is not.
+If you only use Claude Code or Copilot CLI today and have not used Codex yet, you will also need to sign in to Codex with either a ChatGPT account or an API key. [Codex is available with your ChatGPT subscription](https://developers.openai.com/codex/pricing/), and [`codex login`](https://developers.openai.com/codex/cli/reference/#codex-login) supports both ChatGPT and API key sign-in. Run `/codex:setup` to check whether Codex is ready, and use `!codex login` if it is not.
 
 ### Does the plugin use a separate Codex runtime?
 

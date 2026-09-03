@@ -4,13 +4,13 @@
     "name": "OpenAI"
   },
   "metadata": {
-    "description": "Codex plugins to use in Claude Code for delegation and code review.",
+    "description": "Codex plugins for Claude Code and GitHub Copilot CLI delegation and code review.",
     "version": "1.0.6"
   },
   "plugins": [
     {
       "name": "codex",
-      "description": "Use Codex from Claude Code to review code or delegate tasks.",
+      "description": "Use Codex from Claude Code or GitHub Copilot CLI to review code or delegate tasks.",
       "version": "1.0.6",
       "author": {
         "name": "OpenAI"
