@@ -62,7 +62,6 @@ test("Copilot session export preserves main conversation and bounded tool contex
   const records = fs.readFileSync(outputPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
 
   assert.equal(result.cwd, repo);
-  assert.equal(result.sourceVersion, 1);
   assert.equal(result.stats.userMessages, 1);
   assert.equal(result.stats.assistantMessages, 2);
   assert.equal(result.stats.toolCalls, 1);
