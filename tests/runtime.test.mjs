@@ -298,6 +298,50 @@ test("transfer converts the current Copilot session and appends later history to
   );
 });
 
+test("transfer uses the invocation cwd when a Copilot session records a stale workspace", () => {
+  const home = makeTempDir();
+  const repo = path.join(home, "repo");
+  const staleRepo = path.join(home, "deleted-worktree");
+  const binDir = makeTempDir();
+  const sessionId = "12345678-1234-1234-1234-123456789abc";
+  const copilotHome = path.join(home, ".copilot");
+  const sourcePath = path.join(copilotHome, "session-state", sessionId, "events.jsonl");
+  const pluginData = path.join(home, "plugin-data");
+  fs.mkdirSync(repo, { recursive: true });
+  fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+  fs.writeFileSync(
+    sourcePath,
+    `${JSON.stringify({
+      type: "session.start",
+      timestamp: "2026-09-03T03:00:00Z",
+      data: { version: 1, context: { cwd: staleRepo } }
+    })}\n${JSON.stringify({
+      type: "user.message",
+      timestamp: "2026-09-03T03:01:00Z",
+      data: { content: "Continue from the current worktree" }
+    })}\n`,
+    "utf8"
+  );
+
+  const result = run("node", [SCRIPT, "transfer", "--json"], {
+    cwd: repo,
+    env: {
+      ...buildEnv(binDir),
+      HOME: home,
+      CODEX_HOME: path.join(home, ".codex"),
+      COPILOT_HOME: copilotHome,
+      COPILOT_AGENT_SESSION_ID: sessionId,
+      COPILOT_PLUGIN_DATA: pluginData
+    }
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const fakeState = JSON.parse(fs.readFileSync(path.join(binDir, "fake-codex-state.json"), "utf8"));
+  assert.equal(fakeState.threads[0].cwd, fs.realpathSync(repo));
+});
+
 test("installed Copilot transfer derives plugin data without a session-start hook", () => {
   const home = makeTempDir();
   const repo = path.join(home, "repo");
